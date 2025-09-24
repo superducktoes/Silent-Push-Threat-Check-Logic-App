@@ -4,8 +4,8 @@
   "parameters": {
     "logicAppName": { "type": "string", "metadata": { "description": "Name for the Logic App (Consumption)" } },
     "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
-    "ACCESS_KEY": { "type": "secureString", "metadata": { "description": "ThreatCheck ACCESS_KEY" } },
-    "API_KEY": { "type": "secureString", "metadata": { "description": "Silent Push X-API-KEY" } }
+    "ACCESS_KEY": { "type": "secureString", "metadata": { "description": "ThreatCheck API Key" } },
+    "API_KEY": { "type": "secureString", "metadata": { "description": "Silent Push API Key" } }
   },
   "resources": [
     {
