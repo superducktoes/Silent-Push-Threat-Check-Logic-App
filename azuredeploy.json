@@ -1,0 +1,121 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "logicAppName": { "type": "string", "metadata": { "description": "Name for the Logic App (Consumption)" } },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
+    "ACCESS_KEY": { "type": "secureString", "metadata": { "description": "ThreatCheck ACCESS_KEY" } },
+    "API_KEY": { "type": "secureString", "metadata": { "description": "Silent Push X-API-KEY" } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "ACCESS_KEY": { "type": "SecureString" },
+            "API_KEY": { "type": "SecureString" }
+          },
+          "triggers": {
+            "When_an_HTTP_request_is_received": {
+              "type": "Request",
+              "kind": "Http",
+              "inputs": {
+                "method": "POST",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "domain": { "type": "string" },
+                    "explain": { "type": "string" },
+                    "scan_data": { "type": "string" }
+                  },
+                  "required": [ "domain" ]
+                }
+              }
+            }
+          },
+          "actions": {
+            "HTTP": {
+              "runAfter": {},
+              "type": "Http",
+              "inputs": {
+                "method": "GET",
+                "uri": "https://api.threatcheck.silentpush.com/v1/?t=name&d=iofa&u=@{parameters('ACCESS_KEY')}&q=@{triggerBody()?['domain']}"
+              },
+              "runtimeConfiguration": {
+                "contentTransfer": { "transferMode": "Chunked" }
+              }
+            },
+            "Condition": {
+              "type": "If",
+              "runAfter": { "HTTP": [ "Succeeded" ] },
+              "expression": {
+                "and": [
+                  {
+                    "equals": [
+                      "@toLower(string(body('HTTP')?['is_listed']))",
+                      "true"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "HTTP_1": {
+                  "type": "Http",
+                  "inputs": {
+                    "method": "GET",
+                    "uri": "@{concat('https://api.silentpush.com/api/v1/merge-api/explore/enrich/domain/', encodeUriComponent(triggerBody()?['domain']))}",
+                    "headers": {
+                      "X-API-KEY": "@{parameters('API_KEY')}"
+                    },
+                    "queries": {
+                      "explain": "@{coalesce(triggerBody()?['explain'], '0')}",
+                      "scan_data": "@{coalesce(triggerBody()?['scan_data'], '0')}"
+                    },
+                    "retryPolicy": { "type": "none" },
+                    "timeout": "PT20S"
+                  },
+                  "runtimeConfiguration": {
+                    "contentTransfer": { "transferMode": "Chunked" }
+                  }
+                },
+                "Response_Enrich": {
+                  "type": "Response",
+                  "kind": "Http",
+                  "runAfter": { "HTTP_1": [ "Succeeded", "Failed", "TimedOut" ] },
+                  "inputs": {
+                    "statusCode": "@{coalesce(outputs('HTTP_1')?['statusCode'], 502)}",
+                    "body": "@{coalesce(body('HTTP_1'), outputs('HTTP_1'))}"
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Response_ThreatCheck": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 200,
+                      "body": "@body('HTTP')"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "ACCESS_KEY": { "value": "[parameters('ACCESS_KEY')]" },
+          "API_KEY": { "value": "[parameters('API_KEY')]" }
+        }
+      }
+    }
+  ]
+}
