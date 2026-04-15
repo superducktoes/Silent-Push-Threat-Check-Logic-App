@@ -1,232 +1,268 @@
 {
-    "definition": {
-        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
-        "contentVersion": "1.0.0.0",
-        "triggers": {
-            "When_an_HTTP_request_is_received": {
-                "type": "Request",
-                "kind": "Http",
-                "inputs": {
-                    "method": "POST",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "domain": {
-                                "type": "string"
-                            },
-                            "ip": {
-                                "type": "string"
-                            },
-                            "explain": {
-                                "type": "string"
-                            },
-                            "scan_data": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "logicAppName": {
+            "type": "string",
+            "defaultValue": "SilentPush-ThreatCheck",
+            "metadata": {
+                "description": "Name of the Logic App"
             }
         },
-        "actions": {
-            "Initialize_Query_Value": {
-                "runAfter": {},
-                "type": "InitializeVariable",
-                "inputs": {
-                    "variables": [
-                        {
-                            "name": "queryValue",
-                            "type": "string",
-                            "value": "@{coalesce(triggerBody()?['ip'], triggerBody()?['domain'])}"
-                        }
-                    ]
-                }
-            },
-            "Initialize_Is_IP": {
-                "runAfter": {
-                    "Initialize_Query_Value": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "InitializeVariable",
-                "inputs": {
-                    "variables": [
-                        {
-                            "name": "isIP",
-                            "type": "boolean",
-                            "value": "@not(empty(triggerBody()?['ip']))"
-                        }
-                    ]
-                }
-            },
-            "HTTP_ThreatCheck": {
-                "runAfter": {
-                    "Initialize_Is_IP": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "Http",
-                "inputs": {
-                    "method": "GET",
-                    "uri": "@{concat('https://api.threatcheck.silentpush.com/v1/?u=', parameters('ACCESS_KEY'), '&q=', variables('queryValue'), if(variables('isIP'), '&t=ip&d=trafficorigin', '&t=name&d=iofa'))}"
-                },
-                "runtimeConfiguration": {
-                    "contentTransfer": {
-                        "transferMode": "Chunked"
-                    }
-                }
-            },
-            "Condition_Is_Listed": {
-                "actions": {
-                    "Condition_Is_IP_Enrich": {
-                        "actions": {
-                            "HTTP_Enrich_IP": {
-                                "type": "Http",
-                                "inputs": {
-                                    "method": "GET",
-                                    "uri": "@{concat('https://api.silentpush.com/api/v1/merge-api/explore/enrich/ipv4/', encodeUriComponent(variables('queryValue')))}",
-                                    "headers": {
-                                        "X-API-KEY": "@{parameters('API_KEY')}"
-                                    },
-                                    "queries": {
-                                        "explain": "@{coalesce(triggerBody()?['explain'], '0')}",
-                                        "scan_data": "@{coalesce(triggerBody()?['scan_data'], '0')}"
-                                    },
-                                    "retryPolicy": {
-                                        "type": "none"
-                                    },
-                                    "timeout": "PT20S"
-                                },
-                                "runtimeConfiguration": {
-                                    "contentTransfer": {
-                                        "transferMode": "Chunked"
-                                    }
-                                }
-                            },
-                            "Response_Enrich_IP": {
-                                "runAfter": {
-                                    "HTTP_Enrich_IP": [
-                                        "Succeeded",
-                                        "Failed",
-                                        "TimedOut"
-                                    ]
-                                },
-                                "type": "Response",
-                                "kind": "Http",
-                                "inputs": {
-                                    "statusCode": "@{coalesce(outputs('HTTP_Enrich_IP')?['statusCode'], 502)}",
-                                    "body": {
-                                        "enrich": "@coalesce(body('HTTP_Enrich_IP'), outputs('HTTP_Enrich_IP'))",
-                                        "threatcheck_countries": "@body('HTTP_ThreatCheck')?['listed_txt']"
-                                    }
-                                }
-                            }
-                        },
-                        "else": {
-                            "actions": {
-                                "HTTP_Enrich_Domain": {
-                                    "type": "Http",
-                                    "inputs": {
-                                        "method": "GET",
-                                        "uri": "@{concat('https://api.silentpush.com/api/v1/merge-api/explore/enrich/domain/', encodeUriComponent(variables('queryValue')))}",
-                                        "headers": {
-                                            "X-API-KEY": "@{parameters('API_KEY')}"
-                                        },
-                                        "queries": {
-                                            "explain": "@{coalesce(triggerBody()?['explain'], '0')}",
-                                            "scan_data": "@{coalesce(triggerBody()?['scan_data'], '0')}"
-                                        },
-                                        "retryPolicy": {
-                                            "type": "none"
-                                        },
-                                        "timeout": "PT20S"
-                                    },
-                                    "runtimeConfiguration": {
-                                        "contentTransfer": {
-                                            "transferMode": "Chunked"
-                                        }
-                                    }
-                                },
-                                "Response_Enrich_Domain": {
-                                    "runAfter": {
-                                        "HTTP_Enrich_Domain": [
-                                            "Succeeded",
-                                            "Failed",
-                                            "TimedOut"
-                                        ]
-                                    },
-                                    "type": "Response",
-                                    "kind": "Http",
-                                    "inputs": {
-                                        "statusCode": "@{coalesce(outputs('HTTP_Enrich_Domain')?['statusCode'], 502)}",
-                                        "body": "@{coalesce(body('HTTP_Enrich_Domain'), outputs('HTTP_Enrich_Domain'))}"
-                                    }
-                                }
-                            }
-                        },
-                        "expression": {
-                            "and": [
-                                {
-                                    "equals": [
-                                        "@variables('isIP')",
-                                        true
-                                    ]
-                                }
-                            ]
-                        },
-                        "type": "If"
-                    }
-                },
-                "runAfter": {
-                    "HTTP_ThreatCheck": [
-                        "Succeeded"
-                    ]
-                },
-                "else": {
-                    "actions": {
-                        "Response_ThreatCheck_Not_Listed": {
-                            "type": "Response",
-                            "kind": "Http",
-                            "inputs": {
-                                "statusCode": 200,
-                                "body": "@body('HTTP_ThreatCheck')"
-                            }
-                        }
-                    }
-                },
-                "expression": {
-                    "and": [
-                        {
-                            "equals": [
-                                "@toLower(string(body('HTTP_ThreatCheck')?['is_listed']))",
-                                "true"
-                            ]
-                        }
-                    ]
-                },
-                "type": "If"
+        "ACCESS_KEY": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Silent Push ThreatCheck API access key"
             }
         },
-        "outputs": {},
-        "parameters": {
-            "ACCESS_KEY": {
-                "type": "SecureString"
-            },
-            "API_KEY": {
-                "type": "SecureString"
-            },
-            "$connections": {
-                "type": "Object",
-                "defaultValue": {}
+        "API_KEY": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Silent Push API key for enrichment endpoints"
             }
         }
     },
-    "parameters": {
-        "ACCESS_KEY": {},
-        "API_KEY": {},
-        "$connections": {
-            "type": "Object",
-            "value": {}
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "triggers": {
+                        "When_an_HTTP_request_is_received": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "domain": {
+                                            "type": "string"
+                                        },
+                                        "ip": {
+                                            "type": "string"
+                                        },
+                                        "explain": {
+                                            "type": "string"
+                                        },
+                                        "scan_data": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Initialize_Query_Value": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "queryValue",
+                                        "type": "string",
+                                        "value": "@{coalesce(triggerBody()?['ip'], triggerBody()?['domain'])}"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Is_IP": {
+                            "runAfter": {
+                                "Initialize_Query_Value": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "isIP",
+                                        "type": "boolean",
+                                        "value": "@not(empty(triggerBody()?['ip']))"
+                                    }
+                                ]
+                            }
+                        },
+                        "HTTP_ThreatCheck": {
+                            "runAfter": {
+                                "Initialize_Is_IP": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Http",
+                            "inputs": {
+                                "method": "GET",
+                                "uri": "@{concat('https://api.threatcheck.silentpush.com/v1/?u=', parameters('ACCESS_KEY'), '&q=', variables('queryValue'), if(variables('isIP'), '&t=ip&d=trafficorigin', '&t=name&d=iofa'))}"
+                            },
+                            "runtimeConfiguration": {
+                                "contentTransfer": {
+                                    "transferMode": "Chunked"
+                                }
+                            }
+                        },
+                        "Condition_Is_Listed": {
+                            "actions": {
+                                "Condition_Is_IP_Enrich": {
+                                    "actions": {
+                                        "HTTP_Enrich_IP": {
+                                            "type": "Http",
+                                            "inputs": {
+                                                "method": "GET",
+                                                "uri": "@{concat('https://api.silentpush.com/api/v1/merge-api/explore/enrich/ipv4/', encodeUriComponent(variables('queryValue')))}",
+                                                "headers": {
+                                                    "X-API-KEY": "@{parameters('API_KEY')}"
+                                                },
+                                                "queries": {
+                                                    "explain": "@{coalesce(triggerBody()?['explain'], '0')}",
+                                                    "scan_data": "@{coalesce(triggerBody()?['scan_data'], '0')}"
+                                                },
+                                                "retryPolicy": {
+                                                    "type": "none"
+                                                },
+                                                "timeout": "PT20S"
+                                            },
+                                            "runtimeConfiguration": {
+                                                "contentTransfer": {
+                                                    "transferMode": "Chunked"
+                                                }
+                                            }
+                                        },
+                                        "Response_Enrich_IP": {
+                                            "runAfter": {
+                                                "HTTP_Enrich_IP": [
+                                                    "Succeeded",
+                                                    "Failed",
+                                                    "TimedOut"
+                                                ]
+                                            },
+                                            "type": "Response",
+                                            "kind": "Http",
+                                            "inputs": {
+                                                "statusCode": "@{coalesce(outputs('HTTP_Enrich_IP')?['statusCode'], 502)}",
+                                                "body": {
+                                                    "enrich": "@coalesce(body('HTTP_Enrich_IP'), outputs('HTTP_Enrich_IP'))",
+                                                    "threatcheck_countries": "@body('HTTP_ThreatCheck')?['listed_txt']"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "HTTP_Enrich_Domain": {
+                                                "type": "Http",
+                                                "inputs": {
+                                                    "method": "GET",
+                                                    "uri": "@{concat('https://api.silentpush.com/api/v1/merge-api/explore/enrich/domain/', encodeUriComponent(variables('queryValue')))}",
+                                                    "headers": {
+                                                        "X-API-KEY": "@{parameters('API_KEY')}"
+                                                    },
+                                                    "queries": {
+                                                        "explain": "@{coalesce(triggerBody()?['explain'], '0')}",
+                                                        "scan_data": "@{coalesce(triggerBody()?['scan_data'], '0')}"
+                                                    },
+                                                    "retryPolicy": {
+                                                        "type": "none"
+                                                    },
+                                                    "timeout": "PT20S"
+                                                },
+                                                "runtimeConfiguration": {
+                                                    "contentTransfer": {
+                                                        "transferMode": "Chunked"
+                                                    }
+                                                }
+                                            },
+                                            "Response_Enrich_Domain": {
+                                                "runAfter": {
+                                                    "HTTP_Enrich_Domain": [
+                                                        "Succeeded",
+                                                        "Failed",
+                                                        "TimedOut"
+                                                    ]
+                                                },
+                                                "type": "Response",
+                                                "kind": "Http",
+                                                "inputs": {
+                                                    "statusCode": "@{coalesce(outputs('HTTP_Enrich_Domain')?['statusCode'], 502)}",
+                                                    "body": "@{coalesce(body('HTTP_Enrich_Domain'), outputs('HTTP_Enrich_Domain'))}"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@variables('isIP')",
+                                                    true
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                }
+                            },
+                            "runAfter": {
+                                "HTTP_ThreatCheck": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Response_ThreatCheck_Not_Listed": {
+                                        "type": "Response",
+                                        "kind": "Http",
+                                        "inputs": {
+                                            "statusCode": 200,
+                                            "body": "@body('HTTP_ThreatCheck')"
+                                        }
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "equals": [
+                                            "@toLower(string(body('HTTP_ThreatCheck')?['is_listed']))",
+                                            "true"
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "outputs": {},
+                    "parameters": {
+                        "ACCESS_KEY": {
+                            "type": "SecureString"
+                        },
+                        "API_KEY": {
+                            "type": "SecureString"
+                        },
+                        "$connections": {
+                            "type": "Object",
+                            "defaultValue": {}
+                        }
+                    }
+                },
+                "parameters": {
+                    "ACCESS_KEY": {
+                        "value": "[parameters('ACCESS_KEY')]"
+                    },
+                    "API_KEY": {
+                        "value": "[parameters('API_KEY')]"
+                    },
+                    "$connections": {
+                        "value": {}
+                    }
+                }
+            }
         }
-    }
+    ]
 }
