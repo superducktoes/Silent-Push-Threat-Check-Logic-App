@@ -10,8 +10,20 @@ API_KEY is for Silent Push API token
 
 After deploying it can be called with the following options. Note that explain and scan data can be set depending on the level of detail required.
 
-curl -X POST -H "Content-Type: application/json" -d '{
-  "domain": "<DOMAIN>",
-  "explain": "1",
-  "scan_data": "0"
-}' "<WORKFLOW_URL>"
+IP:
+curl -X POST "https://<LOGIC_APP_URL>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ip": "1.2.3.4",
+    "explain": "1",
+    "scan_data": "1"
+  }'
+
+  Domain:
+  curl -X POST "https://<LOGIC_APP_URL>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "example.com",
+    "explain": "1",
+    "scan_data": "1"
+  }'
